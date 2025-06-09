@@ -1,0 +1,28 @@
+---
+# Main task orchestration
+- name: Include installation tasks
+  include_tasks: install.yml
+  when: not node_exporter_manage_only
+  tags:
+    - install
+    - node_exporter
+
+- name: Include service management tasks
+  include_tasks: manage.yml
+  when: 
+    - node_exporter_service_action != ""
+    - node_exporter_service_action is defined
+  tags:
+    - manage
+    - service
+    - node_exporter
+
+- name: Display role completion summary
+  debug:
+    msg: |
+      ✅ Node Exporter Role Completed:
+      - Installation: {{ 'Skipped' if node_exporter_manage_only else 'Executed' }}
+      - Service Management: {{ 'Executed' if node_exporter_service_action != '' else 'Skipped' }}
+      - Final Status: Ready for operation
+  tags:
+    - always

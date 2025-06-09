@@ -1,0 +1,110 @@
+---
+- name: Validate service action
+  fail:
+    msg: "Invalid service action '{{ node_exporter_service_action }}'. Valid options: start, stop, restart, reload, status"
+  when: node_exporter_service_action not in ['start', 'stop', 'restart', 'reload', 'status']
+
+- name: Display service management action
+  debug:
+    msg: "🔧 Performing service action: {{ node_exporter_service_action }}"
+
+- name: Get current service status
+  systemd:
+    name: node_exporter
+  register: current_service_status
+
+- name: Display current service state
+  debug:
+    msg: |
+      Current Service State:
+      - Status: {{ current_service_status.status.ActiveState }}
+      - Enabled: {{ current_service_status.status.UnitFileState }}
+      - PID: {{ current_service_status.status.MainPID | default('N/A') }}
+
+- name: Stop Node Exporter service
+  systemd:
+    name: node_exporter
+    state: stopped
+  become: true
+  when: node_exporter_service_action == "stop"
+  register: stop_result
+
+- name: Start Node Exporter service
+  systemd:
+    name: node_exporter
+    state: started
+  become: true
+  when: node_exporter_service_action == "start"
+  register: start_result
+
+- name: Restart Node Exporter service
+  systemd:
+    name: node_exporter
+    state: restarted
+  become: true
+  when: node_exporter_service_action == "restart"
+  register: restart_result
+  notify: verify node_exporter
+
+- name: Reload Node Exporter service
+  systemd:
+    name: node_exporter
+    state: reloaded
+  become: true
+  when: node_exporter_service_action == "reload"
+  register: reload_result
+
+- name: Wait for service to stabilize
+  pause:
+    seconds: 3
+  when: node_exporter_service_action in ['start', 'restart', 'reload']
+
+- name: Get updated service status
+  systemd:
+    name: node_exporter
+  register: updated_service_status
+
+- name: Check if port is listening
+  wait_for:
+    port: "{{ node_exporter_port }}"
+    host: "127.0.0.1"
+    timeout: 10
+  register: port_check
+  failed_when: false
+  when: 
+    - updated_service_status.status.ActiveState == "active"
+    - node_exporter_service_action != "stop"
+
+- name: Test metrics endpoint
+  uri:
+    url: "http://localhost:{{ node_exporter_port }}/metrics"
+    method: GET
+    status_code: 200
+    timeout: 10
+  register: metrics_test
+  failed_when: false
+  retries: 3
+  delay: 2
+  when: 
+    - updated_service_status.status.ActiveState == "active"
+    - port_check is not failed
+    - node_exporter_service_action != "stop"
+
+- name: Display service management results
+  debug:
+    msg: |
+      🎯 Service Management Results:
+      ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      Action Performed: {{ node_exporter_service_action }}
+      Service State: {{ updated_service_status.status.ActiveState }}
+      Service Enabled: {{ updated_service_status.status.UnitFileState }}
+      PID: {{ updated_service_status.status.MainPID | default('N/A') }}
+      Port {{ node_exporter_port }}: {{ 'Listening ✅' if port_check is not failed else 'Not Listening ❌' }}
+      Metrics Endpoint: {{ 'Accessible ✅' if metrics_test.status | default(0) == 200 else 'Not Accessible ❌' }}
+      {% if node_exporter_service_action == "stop" %}
+      Service successfully stopped
+      {% elif updated_service_status.status.ActiveState == "active" %}
+      Service is running normally
+      {% else %}
+      ⚠️ Service may have issues - check logs with: journalctl -u node_exporter -f
+      {% endif %}

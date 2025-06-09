@@ -1,0 +1,151 @@
+---
+- name: Check if Node Exporter is already installed
+  stat:
+    path: "{{ node_exporter_binary_path }}"
+  register: node_exporter_binary_exists
+
+- name: Get current Node Exporter version if installed
+  command: "{{ node_exporter_binary_path }} --version"
+  register: current_version_output
+  when: node_exporter_binary_exists.stat.exists
+  changed_when: false
+  failed_when: false
+
+- name: Parse current version
+  set_fact:
+    current_node_exporter_version: "{{ current_version_output.stdout | regex_search('version ([0-9.]+)', '\\1') | first }}"
+  when: 
+    - node_exporter_binary_exists.stat.exists
+    - current_version_output.rc == 0
+
+- name: Display current installation status
+  debug:
+    msg: |
+      Node Exporter Installation Status:
+      - Binary exists: {{ node_exporter_binary_exists.stat.exists }}
+      - Current version: {{ current_node_exporter_version | default('not installed') }}
+      - Target version: {{ node_exporter_version }}
+      - Force install: {{ node_exporter_force_install }}
+
+- name: Determine if installation is needed
+  set_fact:
+    installation_needed: >-
+      {{
+        not node_exporter_binary_exists.stat.exists or
+        current_node_exporter_version | default('') != node_exporter_version or
+        node_exporter_force_install
+      }}
+
+- name: Install Node Exporter binary
+  block:
+    - name: Copy installation script
+      copy:
+        src: install_node_exporter.sh
+        dest: /tmp/install_node_exporter.sh
+        mode: '0755'
+
+    - name: Run Node Exporter installation script (binary only)
+      command: >
+        /tmp/install_node_exporter.sh
+        --version {{ node_exporter_version }}
+        --port {{ node_exporter_port }}
+        --silent
+        {{ '--force' if node_exporter_force_install else '' }}
+      become: true
+      register: installation_result
+
+    - name: Clean up installation script
+      file:
+        path: /tmp/install_node_exporter.sh
+        state: absent
+
+    - name: Display installation result
+      debug:
+        var: installation_result.stdout_lines
+
+  when: installation_needed
+
+- name: Verify Node Exporter binary installation
+  stat:
+    path: "{{ node_exporter_binary_path }}"
+  register: verify_binary
+  failed_when: not verify_binary.stat.exists
+
+- name: Verify installed version matches target
+  command: "{{ node_exporter_binary_path }} --version"
+  register: verify_version
+  changed_when: false
+  failed_when: node_exporter_version not in verify_version.stdout
+
+- name: Create Node Exporter systemd service file
+  template:
+    src: node_exporter.service.j2
+    dest: /etc/systemd/system/node_exporter.service
+    owner: root
+    group: root
+    mode: '0644'
+  become: true
+  notify:
+    - reload systemd
+    - restart node_exporter
+  register: service_file_created
+
+- name: Reload systemd daemon
+  systemd:
+    daemon_reload: true
+  become: true
+  when: service_file_created is changed
+
+- name: Ensure Node Exporter service is enabled
+  systemd:
+    name: node_exporter
+    enabled: "{{ node_exporter_enable_service }}"
+  become: true
+  when: node_exporter_enable_service
+
+- name: Ensure Node Exporter service is started
+  systemd:
+    name: node_exporter
+    state: started
+  become: true
+  when: node_exporter_start_service
+  notify: verify node_exporter
+
+- name: Wait for Node Exporter to be ready
+  wait_for:
+    port: "{{ node_exporter_port }}"
+    host: "127.0.0.1"
+    delay: 2
+    timeout: 30
+  when: node_exporter_start_service
+
+- name: Perform initial health check
+  block:
+    - name: Test metrics endpoint
+      uri:
+        url: "http://localhost:{{ node_exporter_port }}/metrics"
+        method: GET
+        status_code: 200
+        timeout: 10
+      register: metrics_check
+      retries: "{{ node_exporter_health_check_retries }}"
+      delay: "{{ node_exporter_health_check_delay }}"
+
+    - name: Verify metrics contain expected data
+      uri:
+        url: "http://localhost:{{ node_exporter_port }}/metrics"
+        method: GET
+        return_content: true
+      register: metrics_content
+      failed_when: "'node_exporter_build_info' not in metrics_content.content"
+
+  when: node_exporter_start_service
+
+- name: Display installation summary
+  debug:
+    msg: |
+      ✅ Node Exporter Installation Complete:
+      - Version: {{ node_exporter_version }}
+      - Port: {{ node_exporter_port }}
+      - Binary: {{ node_exporter_binary_path }}
+      - Service: Configured and ready

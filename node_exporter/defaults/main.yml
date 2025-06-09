@@ -1,0 +1,44 @@
+---
+# Node Exporter configuration
+node_exporter_version: "1.8.2"
+node_exporter_port: 9100
+node_exporter_user: "node_exporter"
+node_exporter_group: "node_exporter"
+node_exporter_binary_path: "/usr/local/bin/node_exporter"
+
+# Installation options
+node_exporter_force_install: false
+node_exporter_enable_service: true
+node_exporter_start_service: true
+
+# Service management options
+node_exporter_service_action: ""  # Options: start, stop, restart, reload
+node_exporter_manage_only: false  # Set to true to skip installation
+
+# Health check settings
+node_exporter_health_check_retries: 3
+node_exporter_health_check_delay: 5
+
+# Service configuration
+node_exporter_service_args:
+  - "--web.listen-address=:{{ node_exporter_port }}"
+  - "--path.procfs=/proc"
+  - "--path.sysfs=/sys"
+  - "--collector.filesystem.mount-points-exclude='^/(sys|proc|dev|host|etc|rootfs/var/lib/docker/containers|rootfs/var/lib/docker/overlay2|rootfs/run/docker/netns|rootfs/var/lib/docker/aufs)($|/)'"
+
+# Additional collectors (optional)
+node_exporter_extra_collectors: []
+
+# Security settings
+node_exporter_systemd_security:
+  NoNewPrivileges: true
+  PrivateTmp: true
+  ProtectHome: true
+  ProtectSystem: strict
+  ProtectControlGroups: true
+  ProtectKernelModules: true
+  ProtectKernelTunables: true
+  RestrictRealtime: true
+  RestrictSUIDSGID: true
+  RemoveIPC: true
+  RestrictNamespaces: true
