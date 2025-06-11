@@ -1,0 +1,33 @@
+[Unit]
+Description=Prometheus Node Exporter
+Documentation=https://prometheus.io/docs/guides/node-exporter/
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=500
+StartLimitBurst=5
+
+[Service]
+User={{ node_exporter_user | default('node_exporter') }}
+Group={{ node_exporter_group | default('node_exporter') }}
+Type=simple
+Restart=on-failure
+RestartSec=5s
+ExecStart={{ node_exporter_binary_path | default('/usr/local/bin/node_exporter') }} \
+    --web.listen-address=:{{ node_exporter_port | default(9100) }} \
+    --path.procfs=/proc \
+    --path.sysfs=/sys \
+    --collector.filesystem.mount-points-exclude='^/(sys|proc|dev)($|/)'
+ExecReload=/bin/kill -HUP $MAINPID
+TimeoutStopSec=20s
+SendSIGKILL=no
+KillMode=mixed
+SyslogIdentifier=node_exporter
+
+# Security measures
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+
+[Install]
+WantedBy=multi-user.target

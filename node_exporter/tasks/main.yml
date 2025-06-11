@@ -1,28 +1,94 @@
 ---
-# Main task orchestration
-- name: Include installation tasks
-  include_tasks: install.yml
-  when: not node_exporter_manage_only
-  tags:
-    - install
-    - node_exporter
+# Node Exporter Ansible Tasks
+# This file manages Node Exporter installation and service configuration
 
-- name: Include service management tasks
-  include_tasks: manage.yml
+- name: Check if Node Exporter is already installed
+  stat:
+    path: "{{ node_exporter_binary_path | default('/usr/local/bin/node_exporter') }}"
+  register: node_exporter_binary_exists
+
+- name: Get current Node Exporter version if installed
+  command: "{{ node_exporter_binary_path | default('/usr/local/bin/node_exporter') }} --version"
+  register: current_version_output
+  when: node_exporter_binary_exists.stat.exists
+  changed_when: false
+  failed_when: false
+
+- name: Parse current version
+  set_fact:
+    current_node_exporter_version: "{{ current_version_output.stdout | regex_search('version ([0-9.]+)', '\\1') | first }}"
   when: 
-    - node_exporter_service_action != ""
-    - node_exporter_service_action is defined
-  tags:
-    - manage
-    - service
-    - node_exporter
+    - node_exporter_binary_exists.stat.exists
+    - current_version_output.rc == 0
 
-- name: Display role completion summary
-  debug:
-    msg: |
-      ✅ Node Exporter Role Completed:
-      - Installation: {{ 'Skipped' if node_exporter_manage_only else 'Executed' }}
-      - Service Management: {{ 'Executed' if node_exporter_service_action != '' else 'Skipped' }}
-      - Final Status: Ready for operation
-  tags:
-    - always
+- name: Determine if installation is needed
+  set_fact:
+    installation_needed: >-
+      {{
+        not node_exporter_binary_exists.stat.exists or
+        current_node_exporter_version | default('') != node_exporter_version or
+        node_exporter_force_install | default(false)
+      }}
+
+- name: Install Node Exporter binary
+  block:
+    - name: Copy installation script
+      copy:
+        src: install_node_exporter.sh
+        dest: /tmp/install_node_exporter.sh
+        mode: '0755'
+
+    - name: Run Node Exporter installation script
+      command: >
+        /tmp/install_node_exporter.sh
+        --version {{ node_exporter_version }}
+        --port {{ node_exporter_port | default(9100) }}
+        --silent
+        {{ '--force' if node_exporter_force_install | default(false) else '' }}
+      become: true
+      register: installation_result
+
+    - name: Clean up installation script
+      file:
+        path: /tmp/install_node_exporter.sh
+        state: absent
+
+  when: installation_needed
+
+- name: Create Node Exporter systemd service file
+  template:
+    src: node_exporter.service.j2
+    dest: /etc/systemd/system/node_exporter.service
+    owner: root
+    group: root
+    mode: '0644'
+  become: true
+  notify:
+    - reload systemd
+    - restart node_exporter
+  register: service_file_created
+
+- name: Ensure Node Exporter service is enabled and started
+  systemd:
+    name: node_exporter
+    enabled: "{{ node_exporter_enable_service | default(true) }}"
+    state: "{{ node_exporter_start_service | default(true) | ternary('started', 'stopped') }}"
+    daemon_reload: true
+  become: true
+  notify:
+    - wait for node_exporter
+    - verify node_exporter_service
+    - verify node_exporter_metrics
+
+- name: Handle service actions
+  systemd:
+    name: node_exporter
+    state: "{{ node_exporter_service_action }}"
+  become: true
+  when: 
+    - node_exporter_service_action is defined
+    - node_exporter_service_action in ['started', 'stopped', 'restarted', 'reloaded']
+  notify:
+    - wait for node_exporter
+    - verify node_exporter_service
+    - verify node_exporter_metrics

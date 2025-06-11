@@ -1,47 +1,60 @@
 ---
+# handlers/main.yml - Fixed version without 'listen' directive
+
 - name: reload systemd
   systemd:
     daemon_reload: true
   become: true
-  listen: "reload systemd"
 
 - name: restart node_exporter
   systemd:
     name: node_exporter
     state: restarted
   become: true
-  listen: "restart node_exporter"
 
-- name: verify node_exporter
-  block:
-    - name: Wait for service to stabilize
-      pause:
-        seconds: 3
-
-    - name: Check service is active after changes
-      systemd:
-        name: node_exporter
-      register: handler_service_status
-      failed_when: handler_service_status.status.ActiveState != "active"
-
-    - name: Verify port is listening after restart
-      wait_for:
-        port: "{{ node_exporter_port }}"
-        host: "127.0.0.1"
-        timeout: 30
-
-    - name: Test metrics endpoint from handler
-      uri:
-        url: "http://localhost:{{ node_exporter_port }}/metrics"
-        method: GET
-        status_code: 200
-        timeout: 10
-      retries: 3
-      delay: 5
-
-    - name: Log successful verification
-      debug:
-        msg: "✅ Node Exporter service verified successfully after changes"
-
+- name: start node_exporter
+  systemd:
+    name: node_exporter
+    state: started
   become: true
-  listen: "verify node_exporter"
+
+- name: stop node_exporter
+  systemd:
+    name: node_exporter
+    state: stopped
+  become: true
+
+- name: enable node_exporter
+  systemd:
+    name: node_exporter
+    enabled: true
+  become: true
+
+- name: disable node_exporter
+  systemd:
+    name: node_exporter
+    enabled: no
+  become: true
+
+# Health check handler (separate tasks, no complex blocks)
+- name: wait for node_exporter
+  wait_for:
+    port: "{{ node_exporter_port | default(9100) }}"
+    host: "127.0.0.1"
+    timeout: 30
+
+- name: verify node_exporter_service
+  systemd:
+    name: node_exporter
+  register: service_status
+  failed_when: service_status.status.ActiveState != "active"
+  become: true
+
+- name: verify node_exporter_metrics
+  uri:
+    url: "http://localhost:{{ node_exporter_port | default(9100) }}/metrics"
+    method: GET
+    status_code: 200
+    timeout: 10
+  retries: 3
+  delay: 5

@@ -1,0 +1,161 @@
+---
+- name: Create prometheus group
+  group:
+    name: "{{ prometheus_group }}"
+    system: true
+    state: present
+
+- name: Create prometheus user
+  user:
+    name: "{{ prometheus_user }}"
+    group: "{{ prometheus_group }}"
+    system: true
+    shell: "/sbin/nologin"
+    home: "{{ prometheus_data_dir }}"
+    createhome: false
+    state: present
+
+- name: Create prometheus directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ prometheus_user }}"
+    group: "{{ prometheus_group }}"
+    mode: '0755'
+  loop:
+    - "{{ prometheus_config_dir }}"
+    - "{{ prometheus_data_dir }}"
+    - "{{ prometheus_log_dir }}"
+    - "{{ prometheus_config_dir }}/rules"
+    - "{{ prometheus_config_dir }}/file_sd"
+
+- name: Check if prometheus binary exists
+  stat:
+    path: "{{ prometheus_bin_dir }}/prometheus"
+  register: prometheus_binary
+
+- name: Get current prometheus version
+  command: "{{ prometheus_bin_dir }}/prometheus --version"
+  register: current_prometheus_version
+  when: prometheus_binary.stat.exists
+  changed_when: false
+  failed_when: false
+
+- name: Set prometheus installation status
+  set_fact:
+    prometheus_needs_install: >-
+      {{ not prometheus_binary.stat.exists or 
+         prometheus_version not in current_prometheus_version.stdout | default('') }}
+
+- name: Create temporary directory for prometheus download
+  tempfile:
+    state: directory
+    suffix: prometheus
+  register: prometheus_temp_dir
+  when: prometheus_needs_install
+
+- name: Download prometheus archive
+  get_url:
+    url: "{{ prometheus_download_url }}"
+    dest: "{{ prometheus_temp_dir.path }}/prometheus.tar.gz"
+    mode: '0644'
+  when: prometheus_needs_install
+
+- name: Extract prometheus archive
+  unarchive:
+    src: "{{ prometheus_temp_dir.path }}/prometheus.tar.gz"
+    dest: "{{ prometheus_temp_dir.path }}"
+    remote_src: true
+    creates: "{{ prometheus_temp_dir.path }}/prometheus-{{ prometheus_version }}.{{ prometheus_platform }}"
+  when: prometheus_needs_install
+
+- name: Copy prometheus binaries
+  copy:
+    src: "{{ prometheus_temp_dir.path }}/prometheus-{{ prometheus_version }}.{{ prometheus_platform }}/{{ item }}"
+    dest: "{{ prometheus_bin_dir }}/{{ item }}"
+    remote_src: true
+    owner: root
+    group: root
+    mode: '0755'
+  loop:
+    - prometheus
+    - promtool
+  when: prometheus_needs_install
+  notify: restart prometheus
+
+- name: Copy prometheus console files
+  copy:
+    src: "{{ prometheus_temp_dir.path }}/prometheus-{{ prometheus_version }}.{{ prometheus_platform }}/{{ item }}"
+    dest: "{{ prometheus_config_dir }}/{{ item }}"
+    remote_src: true
+    owner: "{{ prometheus_user }}"
+    group: "{{ prometheus_group }}"
+    mode: '0644'
+  loop:
+    - consoles
+    - console_libraries
+  when: prometheus_needs_install
+
+- name: Remove temporary directory
+  file:
+    path: "{{ prometheus_temp_dir.path }}"
+    state: absent
+  when: prometheus_needs_install
+
+- name: Create prometheus configuration
+  template:
+    src: prometheus.yml.j2
+    dest: "{{ prometheus_config_dir }}/prometheus.yml"
+    owner: "{{ prometheus_user }}"
+    group: "{{ prometheus_group }}"
+    mode: '0644'
+    backup: true
+    validate: "{{ prometheus_bin_dir }}/promtool check config %s"
+  notify: restart prometheus
+
+- name: Copy rule files
+  copy:
+    src: "{{ item }}"
+    dest: "{{ prometheus_config_dir }}/rules/"
+    owner: "{{ prometheus_user }}"
+    group: "{{ prometheus_group }}"
+    mode: '0644'
+  loop: "{{ prometheus_rule_files }}"
+  when: prometheus_rule_files | length > 0
+  notify: restart prometheus
+
+- name: Create prometheus systemd service
+  template:
+    src: prometheus.service.j2
+    dest: /etc/systemd/system/prometheus.service
+    owner: root
+    group: root
+    mode: '0644'
+  when: prometheus_systemd_enabled
+  notify:
+    - reload systemd
+    - restart prometheus
+
+- name: Configure firewall for prometheus
+  firewalld:
+    port: "{{ prometheus_web_listen_address.split(':')[1] }}/tcp"
+    permanent: true
+    state: enabled
+    zone: "{{ prometheus_firewall_zone }}"
+    immediate: true
+  when: prometheus_configure_firewall and ansible_os_family == "RedHat"
+
+- name: Configure ufw for prometheus
+  ufw:
+    rule: allow
+    port: "{{ prometheus_web_listen_address.split(':')[1] }}"
+    proto: tcp
+  when: prometheus_configure_firewall and ansible_os_family == "Debian"
+
+- name: Start and enable prometheus service
+  systemd:
+    name: prometheus
+    state: "{{ prometheus_systemd_state }}"
+    enabled: "{{ prometheus_systemd_enabled }}"
+    daemon_reload: true
+  when: prometheus_systemd_enabled

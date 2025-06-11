@@ -1,0 +1,51 @@
+---
+# Prometheus version
+prometheus_version: "2.47.2"
+prometheus_platform: "linux-amd64"
+
+# User and group
+prometheus_user: "prometheus"
+prometheus_group: "prometheus"
+
+# Directories
+prometheus_config_dir: "/etc/prometheus"
+prometheus_data_dir: "/var/lib/prometheus"
+prometheus_log_dir: "/var/log/prometheus"
+prometheus_bin_dir: "/usr/local/bin"
+
+# Network configuration
+prometheus_web_listen_address: "0.0.0.0:9090"
+prometheus_web_external_url: ""
+
+# Storage configuration
+prometheus_storage_retention: "15d"
+prometheus_storage_retention_size: ""
+
+# Configuration
+prometheus_global_scrape_interval: "15s"
+prometheus_global_evaluation_interval: "15s"
+prometheus_scrape_timeout: "10s"
+
+# Rule files
+prometheus_rule_files: []
+
+# Scrape configs
+prometheus_scrape_configs:
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090"]
+
+# Alertmanager configuration
+prometheus_alertmanager_config: []
+
+# Remote read/write configuration
+prometheus_remote_write: []
+prometheus_remote_read: []
+
+# Service configuration
+prometheus_systemd_enabled: true
+prometheus_systemd_state: "started"
+
+# Firewall configuration
+prometheus_configure_firewall: false
+prometheus_firewall_zone: "public"

@@ -1,0 +1,12 @@
+---
+- name: restart alertmanager
+  systemd:
+    name: "{{ alertmanager_service_name }}"
+    state: restarted
+  become: true
+
+- name: reload alertmanager
+  uri:
+    url: "http://{{ alertmanager_host }}:{{ alertmanager_port }}/-/reload"
+    method: POST
+  when: alertmanager_enable_reload | bool

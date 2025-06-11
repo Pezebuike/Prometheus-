@@ -1,0 +1,64 @@
+---
+- name: Install Prometheus
+  hosts: prometheus_servers
+  become: yes
+  
+  roles:
+    - role: prometheus
+      vars:
+        prometheus_version: "2.45.0"
+        prometheus_web_listen_address: "0.0.0.0:9090"
+        prometheus_storage_retention: "30d"
+        prometheus_scrape_configs:
+          # Monitor Prometheus itself
+          - job_name: 'prometheus'
+            static_configs:
+              - targets: ['localhost:9090']
+          
+          # Monitor node exporters
+          - job_name: 'node_exporter'
+            scrape_interval: 15s
+            static_configs:
+              - targets:
+                  - 'web1.example.com:9100'
+                  - 'web2.example.com:9100'
+                labels:
+                  env: 'production'
+                  service: 'web'
+              - targets:
+                  - 'db1.example.com:9100'
+                  - 'db2.example.com:9100'
+                labels:
+                  env: 'production'
+                  service: 'database'
+          
+          # Monitor MySQL exporters
+          - job_name: 'mysql_exporter'
+            static_configs:
+              - targets: ['db1.example.com:9104']
+                labels:
+                  instance: 'primary'
+              - targets: ['db2.example.com:9104']
+                labels:
+                  instance: 'replica'
+          
+          # Monitor Docker containers
+          - job_name: 'cadvisor'
+            static_configs:
+              - targets:
+                  - 'docker1.example.com:8080'
+                  - 'docker2.example.com:8080'
+                labels:
+                  service: 'docker'
+  
+  post_tasks:
+    - name: Wait for Prometheus to start
+      uri:
+        url: "http://{{ prometheus_web_listen_address }}/api/v1/query?query=up"
+        status_code: 200
+      retries: 5
+      delay: 10
+      
+    - name: Display Prometheus access URL
+      debug:
+        msg: "Prometheus is accessible at http://{{ ansible_default_ipv4.address }}:9090"

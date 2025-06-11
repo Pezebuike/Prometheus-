@@ -1,0 +1,156 @@
+---
+# Alertmanager service configuration
+alertmanager_user: alertmanager
+alertmanager_group: alertmanager
+alertmanager_create_user: true  # Set to false if user already exists
+alertmanager_service_name: alertmanager
+alertmanager_config_dir: /etc/alertmanager
+alertmanager_templates_dir: /etc/alertmanager/templates
+alertmanager_binary_path: /usr/local/bin
+alertmanager_host: localhost
+alertmanager_port: 9093
+alertmanager_enable_reload: true
+
+# Global configuration
+alertmanager_global:
+  smtp_smarthost: 'smtp.gmail.com:587'
+  smtp_from: 'alerts@yourcompany.com'
+  smtp_auth_username: 'alerts@yourcompany.com'
+  smtp_auth_password: 'your-app-password'
+  smtp_require_tls: true
+  slack_api_url: 'https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK'
+
+# Routing configuration
+alertmanager_route:
+  group_by: ['alertname', 'cluster', 'service']
+  group_wait: 10s
+  group_interval: 10s
+  repeat_interval: 1h
+  receiver: 'default-receiver'
+
+# Custom routes
+alertmanager_routes:
+  - match:
+      severity: critical
+    receiver: 'critical-alerts'
+    group_wait: 0s
+    group_interval: 5m
+    repeat_interval: 30m
+  - match:
+      severity: warning
+    receiver: 'warning-alerts'
+    group_interval: 30m
+    repeat_interval: 4h
+  - match:
+      service: database
+    receiver: 'database-team'
+    group_by: ['alertname', 'instance']
+  - match:
+      team: infrastructure
+    receiver: 'infrastructure-team'
+  - match:
+      environment: development
+    receiver: 'dev-alerts'
+    repeat_interval: 24h
+
+# Inhibition rules
+alertmanager_inhibit_rules:
+  - source_match:
+      severity: 'critical'
+    target_match:
+      severity: 'warning'
+    equal: ['alertname', 'cluster', 'service']
+  - source_match:
+      alertname: 'ClusterDown'
+    target_match:
+      alertname: 'InstanceDown'
+    equal: ['cluster']
+
+# Receivers configuration
+alertmanager_receivers:
+  - name: 'default-receiver'
+    email_configs:
+      - to: 'admin@yourcompany.com'
+        subject: 'Prometheus Alert: {{ "{{" }} .GroupLabels.alertname {{ "}}" }}'
+        body: |
+          {{ "{{" }} range .Alerts {{ "}}" }}
+          Alert: {{ "{{" }} .Annotations.summary {{ "}}" }}
+          Description: {{ "{{" }} .Annotations.description {{ "}}" }}
+          Labels:
+          {{ "{{" }} range .Labels.SortedPairs {{ "}}" }}  {{ "{{" }} .Name {{ "}}" }}: {{ "{{" }} .Value {{ "}}" }}
+          {{ "{{" }} end {{ "}}" }}
+          {{ "{{" }} end {{ "}}" }}
+
+  - name: 'critical-alerts'
+    pagerduty_configs:
+      - service_key: "{{ pagerduty_service_key | default('YOUR-PAGERDUTY-SERVICE-KEY') }}"
+        description: 'Critical Alert: {{ "{{" }} .GroupLabels.alertname {{ "}}" }}'
+        details:
+          firing: '{{ "{{" }} .Alerts.Firing | len {{ "}}" }}'
+          resolved: '{{ "{{" }} .Alerts.Resolved | len {{ "}}" }}'
+    slack_configs:
+      - channel: '#critical-alerts'
+        title: '🚨 Critical Alert'
+        text: |
+          {{ "{{" }} range .Alerts {{ "}}" }}
+          *Alert:* {{ "{{" }} .Annotations.summary {{ "}}" }}
+          *Description:* {{ "{{" }} .Annotations.description {{ "}}" }}
+          *Severity:* {{ "{{" }} .Labels.severity {{ "}}" }}
+          *Instance:* {{ "{{" }} .Labels.instance {{ "}}" }}
+          {{ "{{" }} end {{ "}}" }}
+        color: 'danger'
+        send_resolved: true
+
+  - name: 'warning-alerts'
+    slack_configs:
+      - channel: '#monitoring-alerts'
+        title: '⚠️ Warning Alert'
+        text: |
+          {{ "{{" }} range .Alerts {{ "}}" }}
+          *Alert:* {{ "{{" }} .Annotations.summary {{ "}}" }}
+          *Description:* {{ "{{" }} .Annotations.description {{ "}}" }}
+          *Severity:* {{ "{{" }} .Labels.severity {{ "}}" }}
+          *Instance:* {{ "{{" }} .Labels.instance {{ "}}" }}
+          {{ "{{" }} end {{ "}}" }}
+        color: 'warning'
+        send_resolved: true
+
+  - name: 'database-team'
+    email_configs:
+      - to: 'database-team@yourcompany.com'
+        subject: 'Database Alert: {{ "{{" }} .GroupLabels.alertname {{ "}}" }}'
+    slack_configs:
+      - channel: '#database-alerts'
+        title: '🗄️ Database Alert'
+        text: |
+          {{ "{{" }} range .Alerts {{ "}}" }}
+          *Alert:* {{ "{{" }} .Annotations.summary {{ "}}" }}
+          *Database:* {{ "{{" }} .Labels.database {{ "}}" }}
+          *Instance:* {{ "{{" }} .Labels.instance {{ "}}" }}
+          {{ "{{" }} end {{ "}}" }}
+
+  - name: 'infrastructure-team'
+    email_configs:
+      - to: 'infrastructure@yourcompany.com'
+        subject: 'Infrastructure Alert: {{ "{{" }} .GroupLabels.alertname {{ "}}" }}'
+    slack_configs:
+      - channel: '#infrastructure'
+        title: '🔧 Infrastructure Alert'
+        text: |
+          {{ "{{" }} range .Alerts {{ "}}" }}
+          *Alert:* {{ "{{" }} .Annotations.summary {{ "}}" }}
+          *Node:* {{ "{{" }} .Labels.instance {{ "}}" }}
+          *Cluster:* {{ "{{" }} .Labels.cluster {{ "}}" }}
+          {{ "{{" }} end {{ "}}" }}
+
+  - name: 'dev-alerts'
+    slack_configs:
+      - channel: '#dev-monitoring'
+        title: '🧪 Development Alert'
+        text: |
+          {{ "{{" }} range .Alerts {{ "}}" }}
+          *Alert:* {{ "{{" }} .Annotations.summary {{ "}}" }}
+          *Environment:* {{ "{{" }} .Labels.environment {{ "}}" }}
+          *Service:* {{ "{{" }} .Labels.service {{ "}}" }}
+          {{ "{{" }} end {{ "}}" }}
+        color: 'good'

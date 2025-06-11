@@ -1,0 +1,30 @@
+global:
+{% for key, value in alertmanager_global.items() %}
+  {{ key }}: {{ value | to_nice_yaml }}
+{% endfor %}
+
+templates:
+  - '{{ alertmanager_templates_dir }}/*.tmpl'
+
+route:
+{% for key, value in alertmanager_route.items() %}
+  {{ key }}: {{ value | to_nice_yaml }}
+{% endfor %}
+{% if alertmanager_routes is defined %}
+  routes:
+{% for route in alertmanager_routes %}
+  - {{ route | to_nice_yaml | indent(4) }}
+{% endfor %}
+{% endif %}
+
+{% if alertmanager_inhibit_rules is defined %}
+inhibit_rules:
+{% for rule in alertmanager_inhibit_rules %}
+- {{ rule | to_nice_yaml | indent(2) }}
+{% endfor %}
+{% endif %}
+
+receivers:
+{% for receiver in alertmanager_receivers %}
+- {{ receiver | to_nice_yaml | indent(2) }}
+{% endfor %}

@@ -1,0 +1,120 @@
+# Global configuration
+global:
+  scrape_interval: {{ prometheus_global_scrape_interval }}
+  evaluation_interval: {{ prometheus_global_evaluation_interval }}
+{% if prometheus_web_external_url %}
+  external_labels:
+    external_url: '{{ prometheus_web_external_url }}'
+{% endif %}
+
+# Alertmanager configuration
+{% if prometheus_alertmanager_config %}
+alerting:
+  alertmanagers:
+{% for alertmanager in prometheus_alertmanager_config %}
+    - static_configs:
+        - targets:
+{% for target in alertmanager.targets %}
+            - {{ target }}
+{% endfor %}
+{% if alertmanager.scheme is defined %}
+      scheme: {{ alertmanager.scheme }}
+{% endif %}
+{% if alertmanager.path_prefix is defined %}
+      path_prefix: {{ alertmanager.path_prefix }}
+{% endif %}
+{% endfor %}
+{% endif %}
+
+# Load rules once and periodically evaluate them
+rule_files:
+{% if prometheus_rule_files %}
+{% for rule_file in prometheus_rule_files %}
+  - "{{ prometheus_config_dir }}/rules/{{ rule_file | basename }}"
+{% endfor %}
+{% else %}
+  # - "first_rules.yml"
+  # - "second_rules.yml"
+{% endif %}
+
+# Scrape configuration
+scrape_configs:
+{% for scrape_config in prometheus_scrape_configs %}
+  - job_name: '{{ scrape_config.job_name }}'
+{% if scrape_config.scrape_interval is defined %}
+    scrape_interval: {{ scrape_config.scrape_interval }}
+{% endif %}
+{% if scrape_config.scrape_timeout is defined %}
+    scrape_timeout: {{ scrape_config.scrape_timeout }}
+{% endif %}
+{% if scrape_config.metrics_path is defined %}
+    metrics_path: {{ scrape_config.metrics_path }}
+{% endif %}
+{% if scrape_config.scheme is defined %}
+    scheme: {{ scrape_config.scheme }}
+{% endif %}
+{% if scrape_config.basic_auth is defined %}
+    basic_auth:
+      username: {{ scrape_config.basic_auth.username }}
+      password: {{ scrape_config.basic_auth.password }}
+{% endif %}
+{% if scrape_config.static_configs is defined %}
+    static_configs:
+{% for static_config in scrape_config.static_configs %}
+      - targets:
+{% for target in static_config.targets %}
+          - {{ target }}
+{% endfor %}
+{% if static_config.labels is defined %}
+        labels:
+{% for label_name, label_value in static_config.labels.items() %}
+          {{ label_name }}: {{ label_value }}
+{% endfor %}
+{% endif %}
+{% endfor %}
+{% endif %}
+{% if scrape_config.file_sd_configs is defined %}
+    file_sd_configs:
+{% for file_sd_config in scrape_config.file_sd_configs %}
+      - files:
+{% for file in file_sd_config.files %}
+          - {{ file }}
+{% endfor %}
+{% if file_sd_config.refresh_interval is defined %}
+        refresh_interval: {{ file_sd_config.refresh_interval }}
+{% endif %}
+{% endfor %}
+{% endif %}
+{% endfor %}
+
+# Remote write configuration
+{% if prometheus_remote_write %}
+remote_write:
+{% for remote_write in prometheus_remote_write %}
+  - url: {{ remote_write.url }}
+{% if remote_write.remote_timeout is defined %}
+    remote_timeout: {{ remote_write.remote_timeout }}
+{% endif %}
+{% if remote_write.basic_auth is defined %}
+    basic_auth:
+      username: {{ remote_write.basic_auth.username }}
+      password: {{ remote_write.basic_auth.password }}
+{% endif %}
+{% endfor %}
+{% endif %}
+
+# Remote read configuration
+{% if prometheus_remote_read %}
+remote_read:
+{% for remote_read in prometheus_remote_read %}
+  - url: {{ remote_read.url }}
+{% if remote_read.remote_timeout is defined %}
+    remote_timeout: {{ remote_read.remote_timeout }}
+{% endif %}
+{% if remote_read.basic_auth is defined %}
+    basic_auth:
+      username: {{ remote_read.basic_auth.username }}
+      password: {{ remote_read.basic_auth.password }}
+{% endif %}
+{% endfor %}
+{% endif %}

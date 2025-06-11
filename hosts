@@ -1,0 +1,10 @@
+[main]
+13.60.169.125 ansible_user=ec2-user ansible_ssh_private_key_file=~/.ssh/key/ansible-enigne
+
+[monitoring]
+13.60.169.125
+
+[monitoring:vars]
+ansible_user=ec2-user
+ansible_become=yes
+ansible_ssh_private_key_file=~/.ssh/key/ansible-enigne

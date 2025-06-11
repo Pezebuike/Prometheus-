@@ -1,0 +1,33 @@
+---
+- name: Deploy Alertmanager Configuration
+  hosts: alertmanager_servers
+  become: true
+  vars:
+    # Override default variables here
+    alertmanager_global:
+      smtp_smarthost: 'smtp.company.com:587'
+      smtp_from: 'alerts@company.com'
+      smtp_auth_username: 'alerts@company.com'
+      smtp_auth_password: "{{ vault_smtp_password }}"
+      slack_api_url: "{{ vault_slack_webhook_url }}"
+    
+    # Custom PagerDuty key
+    pagerduty_service_key: "{{ vault_pagerduty_key }}"
+    
+    # Custom receivers for this environment
+    alertmanager_receivers:
+      - name: 'default-receiver'
+        email_configs:
+          - to: 'admin@company.com'
+            subject: 'Prometheus Alert: {{ "{{" }} .GroupLabels.alertname {{ "}}" }}'
+      - name: 'prod-critical'
+        pagerduty_configs:
+          - service_key: "{{ pagerduty_service_key }}"
+            description: 'Production Critical Alert'
+        slack_configs:
+          - channel: '#prod-alerts'
+            title: '🚨 Production Critical Alert'
+            color: 'danger'
+  
+  roles:
+    - prometheus_alertmanager_config

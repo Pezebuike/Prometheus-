@@ -1,0 +1,3 @@
+---
+prometheus_download_url: "https://github.com/prometheus/prometheus/releases/download/v{{ prometheus_version }}/prometheus-{{ prometheus_version }}.{{ prometheus_platform }}.tar.gz"
+prometheus_checksum_url: "https://github.com/prometheus/prometheus/releases/download/v{{ prometheus_version }}/sha256sums.txt"
